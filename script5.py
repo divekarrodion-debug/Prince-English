@@ -69,53 +69,50 @@ def get_deepseek_key():
 
 
 def get_card_deepseek(word):
-    key = get_deepseek_key()
-    if not key:
-        raise RuntimeError("не найден ключ DEEPSEEK_API_KEY")
-
     prompt = (
         f"Ты преподаватель английского. Слово: '{word}'.\n"
-        "Верни JSON с тремя полями:\n"
-        "translation: перевод на русский (1-3 самых частых значения через запятую);\n"
-        "example_eng: простое предложение уровня A2-B1 с этим словом;\n"
-        "example_rus: перевод этого предложения на русский.\n"
-        "Только JSON, без пояснений."
+        "Верни строго JSON с тремя полями (без markdown и лишнего текста):\n"
+        '{"translation": "перевод на русский (1-3 значения)", '
+        '"example_eng": "простое предложение уровня A2-B1 с этим словом", '
+        '"example_rus": "перевод этого предложения на русский"}'
     )
     r = requests.post(
-        "https://api.deepseek.com/chat/completions",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        "https://pollinations.ai",
+        headers={"Content-Type": "application/json"},
         json={
-            "model": "deepseek-flash",
+            "model": "openai",
             "messages": [{"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"},
-            "thinking": {"type": "disabled"},
-            "max_tokens": 400,
+            "jsonMode": True,
         },
-        timeout=30,
+        timeout=25,
     )
     r.raise_for_status()
-    data = json.loads(r.json()["choices"][0]["message"]["content"])
-    return (str(data["translation"]).strip(),
-            str(data["example_eng"]).strip(),
-            str(data["example_rus"]).strip())
-
+    raw = r.json()["choices"][0]["message"]["content"].strip()
+    raw = raw.replace("```json", "").replace("```", "").strip()
+    data = json.loads(raw)
+    return (
+        str(data["translation"]).strip(),
+        str(data["example_eng"]).strip(),
+        str(data["example_rus"]).strip(),
+    )
 
 def get_card(word):
-    try:
-        return (*get_card_deepseek(word), "DeepSeek")
-    except Exception as e:
-        reason = str(e)
-        translation = translate_free(word)
-        ex_eng = example_free(word)
-        if ex_eng:
-            try:
-                ex_rus = translate_free(ex_eng)
-            except Exception:
-                ex_rus = "Нет перевода примера"
-        else:
-            ex_eng = "No example found"
-            ex_rus = "Пример не найден"
-        return translation, ex_eng, ex_rus, f"запасной вариант (DeepSeek не ответил: {reason})"
+        try:
+            t, ex_e, ex_r = get_card_deepseek(word)
+            return t, ex_e, ex_r, "Pollinations AI"
+        except Exception as e:
+            reason = str(e)
+            translation = translate_free(word)
+            ex_eng = example_free(word)
+            if ex_eng:
+                try:
+                    ex_rus = translate_free(ex_eng)
+                except Exception:
+                    ex_rus = "Нет перевода примера"
+            else:
+                ex_eng = "No example found"
+                ex_rus = "Пример не найден"
+            return translation, ex_eng, ex_rus, f"запасной вариант (DeepSeek не ответил: {reason})"
 
 
 st.markdown("""
@@ -528,7 +525,7 @@ elif choice == "Мой словарь":
 
         if st.button("🤖 Сгенерировать перевод и пример", use_container_width=True):
             if new_word.strip() != "":
-                with st.spinner("DeepSeek подбирает перевод и пример... 🧠"):
+                with st.spinner("Pollinations AI подбирает перевод и пример... 🧠"):
                     try:
                         translation, ex_eng, ex_rus, source = get_card(new_word.strip())
                         st.session_state.ai_translation = translation
