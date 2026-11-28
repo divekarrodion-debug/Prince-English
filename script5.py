@@ -58,61 +58,72 @@ def example_free(word):
     return ""
 
 
-def get_deepseek_key():
+def get_pollinations_key():
     try:
-        key = st.secrets["DEEPSEEK_API_KEY"]
+        key = st.secrets["POLLINATIONS_API_KEY"]
         if key:
             return key
     except Exception:
         pass
-    return os.getenv("DEEPSEEK_API_KEY", "")
+    return os.getenv("POLLINATIONS_API_KEY", "")
 
+def get_card_pollinations(word):
+    key = get_pollinations_key()
+    if not key:
+        raise RuntimeError("не найден ключ POLLINATIONS_API_KEY")
 
-def get_card_deepseek(word):
     prompt = (
-        f"Ты преподаватель английского. Слово: '{word}'.\n"
+        f"Ты преподаватель английского. Слово или идиома: '{word}'.\n"
         "Верни строго JSON с тремя полями (без markdown и лишнего текста):\n"
-        '{"translation": "перевод на русский (1-3 значения)", '
-        '"example_eng": "простое предложение уровня A2-B1 с этим словом", '
+        '{"translation": "точный перевод на русский (учитывай идиоматический смысл)", '
+        '"example_eng": "простое естественное предложение уровня A2-B1 с этим выражением", '
         '"example_rus": "перевод этого предложения на русский"}'
     )
     r = requests.post(
-        "https://pollinations.ai",
-        headers={"Content-Type": "application/json"},
+        "https://gen.pollinations.ai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        },
         json={
             "model": "openai",
             "messages": [{"role": "user", "content": prompt}],
-            "jsonMode": True,
         },
-        timeout=25,
+        timeout=40,
     )
-    r.raise_for_status()
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+
     raw = r.json()["choices"][0]["message"]["content"].strip()
-    raw = raw.replace("```json", "").replace("```", "").strip()
-    data = json.loads(raw)
+    start, end = raw.find("{"), raw.rfind("}")
+    if start == -1 or end == -1:
+        raise RuntimeError(f"ИИ вернул не JSON: {raw[:100]}")
+    data = json.loads(raw[start:end + 1])
     return (
         str(data["translation"]).strip(),
         str(data["example_eng"]).strip(),
         str(data["example_rus"]).strip(),
     )
 
+
 def get_card(word):
-        try:
-            t, ex_e, ex_r = get_card_deepseek(word)
-            return t, ex_e, ex_r, "Pollinations AI"
-        except Exception as e:
-            reason = str(e)
-            translation = translate_free(word)
-            ex_eng = example_free(word)
-            if ex_eng:
-                try:
-                    ex_rus = translate_free(ex_eng)
-                except Exception:
-                    ex_rus = "Нет перевода примера"
-            else:
-                ex_eng = "No example found"
-                ex_rus = "Пример не найден"
-            return translation, ex_eng, ex_rus, f"запасной вариант (DeepSeek не ответил: {reason})"
+    try:
+        t, ex_e, ex_r = get_card_pollinations(word)
+        return t, ex_e, ex_r, "Pollinations AI"
+    except Exception as e:
+        reason = str(e)
+        translation = translate_free(word)
+        ex_eng = example_free(word)
+        if ex_eng:
+            try:
+                ex_rus = translate_free(ex_eng)
+            except Exception:
+                ex_rus = "Нет перевода примера"
+        else:
+            ex_eng = "No example found"
+            ex_rus = "Пример не найден"
+        return translation, ex_eng, ex_rus, f"запасной вариант (Pollinations AI не ответил: {reason})"
+
 
 
 st.markdown("""
